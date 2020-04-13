@@ -8,14 +8,10 @@ from threading import Thread
 from dotenv import load_dotenv
 from selenium.webdriver.common.keys import Keys
 from selenium import webdriver
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.common.by import By
 
 
-def signal_handler():
-    print('You pressed Ctrl+C')
+def signal_handler(sig, frame):
+    print('You pressed Ctrl+C. Terminating program.')
     sys.exit(0)
 
 
@@ -26,7 +22,7 @@ class AutoUpdater(Thread):
 
     selenium_options = ('--disable-notifications',
                         '--log-level=1',
-                        # '--headless',
+                        '--headless',
                         '--window-size=480,800',
                         f'--user-agent={user_agent}')
 
@@ -35,40 +31,31 @@ class AutoUpdater(Thread):
         self.login = login
         self.pwd = pwd
         self.refresh_count = 0
-        self.timeout = 3
+        self.delay = 5
         self.options = webdriver.ChromeOptions()
-        for option in selenium_options:
+        for option in self.selenium_options:
             self.options.add_argument(option)
         self.driver = webdriver.Chrome(options=self.options)
         self.daemon = True
         self.start()
 
-    def _find_element(self, xpath_selector):
-        try:
-            element_present = EC.element_located_to_be_selected((By.XPATH, xpath_selector))
-            WebDriverWait(self.driver, self.timeout).until(element_present)
-        except TimeoutException:
-            pass
-        try:
-            return self.driver.find_element_by_xpath(xpath_selector)
-        except NoSuchElementException:
-            return None
-
     def run(self):
         self.driver.get(self.start_url)
+        sleep(self.delay)
 
         # ищем необходимые input формы
-        user_input = self._find_element(self.xpath_user_input)
-        pwd_input = self._find_element(self.xpath_pwd_input)
+        user_input = self.driver.find_element_by_xpath(self.xpath_user_input)
+        pwd_input = self.driver.find_element_by_xpath(self.xpath_pwd_input)
 
         # вводим логин и пароль
         user_input.send_keys(self.login)
         pwd_input.send_keys(self.pwd)
         pwd_input.send_keys(Keys.RETURN)
+        sleep(self.delay)
 
         while True:
             # ищем активные кнопки обновления резюме
-            update_btns = self._find_element(self.xpath_update_btns)
+            update_btns = self.driver.find_elements_by_xpath(self.xpath_update_btns)
 
             # если кнопки есть, прокликиваем с задержкой
             if update_btns:
@@ -78,13 +65,12 @@ class AutoUpdater(Thread):
                     cv_name = update_btn.find_element_by_xpath(self.xpath_update_btn).text
                     print(f'[{self.__class__.__name__}][{self.login}]\tupdating {cv_name}...')
                     update_btn.click()
-                    sleep(1)
+                    sleep(self.delay)
 
-            # sleep(random.randint(250, 400))
-            sleep(random.randint(1, 4))
+            sleep(random.randint(250, 400))
+            self.refresh_count += 1
             print(f'[{self.__class__.__name__}][{self.login}]\t[{self.refresh_count}]\treloading page...')
             self.driver.refresh()
-            self.refresh_count += 1
 
 
 class HhruAutoUpdate(AutoUpdater):
@@ -108,29 +94,23 @@ class SuperJobAutoUpdate(AutoUpdater):
 
 
 if __name__ == '__main__':
-    user_agent = 'Mozilla/5.0 (iPhone; CPU iPhone OS 13_2_3 like Mac OS X) ' \
-                 'AppleWebKit/605.1.15 (KHTML, like Gecko) ' \
-                 'Version/13.0.3 Mobile/15E148 Safari/604.1'
-    selenium_options = ('--disable-notifications',
-                        '--log-level=1',
-                        '--window-size=480,800',
-                        f'--user-agent={user_agent}')
-
-    # //TODO переделать хранение паролей, в окружении небезопасно
     do_env = join(dirname(__file__), '.env')
-    load_dotenv(do_env)
+    if os.path.exists(do_env):
+        load_dotenv(do_env)
 
-    OLEG_LOGIN = os.getenv('OLEG_LOGIN')
-    OLEG_HHRU_PWD = os.getenv('OLEG_HHRU_PWD')
-    OLEG_SUPERJOB_PWD = os.getenv('OLEG_SUPERJOB_PWD')
+        OLEG_LOGIN = os.getenv('OLEG_LOGIN')
+        OLEG_HHRU_PWD = os.getenv('OLEG_HHRU_PWD')
+        OLEG_SUPERJOB_PWD = os.getenv('OLEG_SUPERJOB_PWD')
 
-    JULIA_LOGIN = os.getenv('JULIA_LOGIN')
-    JULIA_HHRU_PWD = os.getenv('JULIA_HHRU_PWD')
+        JULIA_LOGIN = os.getenv('JULIA_LOGIN')
+        JULIA_HHRU_PWD = os.getenv('JULIA_HHRU_PWD')
 
-    # HhruAutoUpdate(JULIA_LOGIN, JULIA_HHRU_PWD)
-    # HhruAutoUpdate(OLEG_LOGIN, OLEG_HHRU_PWD)
-    SuperJobAutoUpdate(OLEG_LOGIN, OLEG_SUPERJOB_PWD)
+        HhruAutoUpdate(JULIA_LOGIN, JULIA_HHRU_PWD)
+        HhruAutoUpdate(OLEG_LOGIN, OLEG_HHRU_PWD)
+        SuperJobAutoUpdate(OLEG_LOGIN, OLEG_SUPERJOB_PWD)
 
-    signal.signal(signal.SIGINT, signal_handler)
-    while True:
-        _input = input('Press Ctrl+C to exit\n')
+        signal.signal(signal.SIGINT, signal_handler)
+        while True:
+            _input = input('Press Ctrl+C to exit\n')
+    else:
+        print('At first create .env file before using the script.')
